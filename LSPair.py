@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import matplotlib.pyplot as plt
 
 import statsmodels.api as sm
@@ -590,7 +591,501 @@ class LSPair:
             df_out = pd.concat([df_out, df_tmp_combined])
 
         return df_out
-    
-    # I want rolling OLS
-        # for long premia, short premia, L/S Premia
-        # with confidence interval
+
+    # function for parametrization 
+    def _rolling_ols(
+        self, df_endog: pd.Series, df_exog: pd.Series,
+        lookback_windows: list, conf_int, verbose) -> pd.DataFrame:
+
+        df_out = pd.DataFrame()
+        id_vars_name = df_endog.index.name
+        for lookback_window in lookback_windows:
+
+            if verbose == True: print("Working on", lookback_window)
+            try:
+
+                rolling_ols = (RollingOLS(
+                    endog = df_exog,
+                    exog = sm.add_constant(df_endog),
+                    window = lookback_window).
+                    fit())
+                
+                rolling_ols_params = (rolling_ols.params.dropna().rename(
+                    columns = {
+                        "const": "alpha",
+                        df_endog.name: "beta"}).
+                    reset_index().
+                    melt(id_vars = id_vars_name).
+                    rename(columns = {
+                        "variable": "parameter"}).
+                    assign(
+                          variable = "value",
+                          lookback_window = lookback_window))
+                
+                rolling_ci = (rolling_ols.conf_int(
+                    alpha = conf_int, cols = None).
+                    dropna().
+                    reset_index().
+                    melt(id_vars = id_vars_name).
+                    rename(columns = {
+                        "variable_0": "parameter",
+                        "variable_1": "variable"}).
+                    replace({
+                        "const": "alpha",
+                        df_endog.name: "beta",
+                        "upper": "upper_{}_conf".format(str(1 - conf_int/2)),
+                        "lower": "lower_{}_conf".format(str(conf_int / 2))}).
+                    assign(lookback_window = lookback_window))
+                
+                df_out = (pd.concat([df_out, rolling_ols_params, rolling_ci]))
+
+            except:
+                print("There was a problem with", lookback_window)
+
+        if verbose == True: print(" ")  
+        return df_out
+
+    # for all the periods
+    def rolling_ols(
+        self, lookback_windows = [30, 60, 90, 252, 252 * 2, 252 * 3, 252 * 5],
+        conf_int = 0.05,
+        verbose = True):
+
+        df_out = pd.DataFrame()
+
+        if verbose == True:
+            print("Working on In-Sample Long Rolling OLS")
+
+        in_sample_long_ols = (self._rolling_ols(
+            df_endog = self.in_sample_df.long_position,
+            df_exog = self.in_sample_df.benchmark,
+            lookback_windows = lookback_windows,
+            conf_int = conf_int,
+            verbose = verbose).
+            assign(
+                sample_group = "in_sample",
+                position = "long",
+                ticker = self.long_name,
+                benchmark_ticker = self.benchmark_name))
+        
+        if verbose == True:
+            print("Working on Out-of-Sample Long Rolling OLS")
+
+        out_sample_long_ols = (self._rolling_ols(
+            df_endog = self.out_sample_df.long_position,
+            df_exog = self.out_sample_df.benchmark,
+            lookback_windows = lookback_windows,
+            conf_int = conf_int,
+            verbose = verbose).
+            assign(
+                sample_group = "out_sample",
+                position = "long",
+                ticker = self.long_name,
+                benchmark_ticker = self.benchmark_name))
+        
+        if verbose == True:
+            print("Working on Full-Sample Long Rolling OLS")
+
+        full_sample_long_ols = (self._rolling_ols(
+            df_endog = self.full_sample_df.long_position,
+            df_exog = self.full_sample_df.benchmark,
+            lookback_windows = lookback_windows,
+            conf_int = conf_int,
+            verbose = verbose).
+            assign(
+                sample_group = "full_sample",
+                position = "long",
+                ticker = self.long_name,
+                benchmark_ticker = self.benchmark_name))
+        
+        if verbose == True:
+            print("Working on In-Sample Short Rolling OLS")
+
+        in_sample_short_ols = (self._rolling_ols(
+            df_endog = self.in_sample_df.short_position,
+            df_exog = self.in_sample_df.benchmark,
+            lookback_windows = lookback_windows,
+            conf_int = conf_int,
+            verbose = verbose).
+            assign(
+                sample_group = "in_sample",
+                position = "short",
+                ticker = self.short_name,
+                benchmark_ticker = self.benchmark_name))
+        
+        if verbose == True:
+            print("Working on Out-of-Sample short Rolling OLS")
+
+        out_sample_short_ols = (self._rolling_ols(
+            df_endog = self.out_sample_df.short_position,
+            df_exog = self.out_sample_df.benchmark,
+            lookback_windows = lookback_windows,
+            conf_int = conf_int,
+            verbose = verbose).
+            assign(
+                sample_group = "out_sample",
+                position = "short",
+                ticker = self.short_name,
+                benchmark_ticker = self.benchmark_name))
+        
+        if verbose == True:
+            print("Working on Full-Sample short Rolling OLS")
+
+        full_sample_short_ols = (self._rolling_ols(
+            df_endog = self.full_sample_df.short_position,
+            df_exog = self.full_sample_df.benchmark,
+            lookback_windows = lookback_windows,
+            conf_int = conf_int,
+            verbose = verbose).
+            assign(
+                sample_group = "full_sample",
+                position = "short",
+                ticker = self.short_name,
+                benchmark_ticker = self.benchmark_name))
+  
+        df_out = pd.concat([
+            in_sample_long_ols, out_sample_long_ols, full_sample_long_ols,
+            in_sample_short_ols, out_sample_short_ols, full_sample_short_ols])
+      
+        return df_out
+
+    def plot_single_rolling_ols(self, window: float, conf_int = 0.05):
+
+        df_tmp = (self.rolling_ols(
+            lookback_windows = [30],
+            conf_int = conf_int,
+            verbose = False).
+            drop(columns = ["lookback_window"]))
+        
+        fig, axes = plt.subplots(nrows = 4, ncols = 3, figsize = (24,16))
+
+        sample_dict = {
+            "in_sample": "In-Sample",
+            "out_sample": "Out-of-Sample",
+            "full_sample": "Full Sample"}
+
+        conf_out = 1 - conf_int
+        counter = 0
+
+        # unfortunately need to unpack the data with for loops
+        for k, position in enumerate(df_tmp.position.drop_duplicates().sort_values().to_list()):
+            for j, parameter in enumerate(df_tmp.parameter.drop_duplicates().sort_values().to_list()):
+                for i, sample in enumerate(["in_sample", "out_sample", "full_sample"]):
+
+                    df_plot_tmp = (df_tmp.query(
+                        "position == @position & parameter == @parameter & sample_group == @sample")
+                        [["Date", "parameter", "value", "variable", "ticker", "benchmark_ticker"]])
+                    
+                    ticker, benchmark_ticker = df_plot_tmp.ticker.iloc[0], df_plot_tmp.benchmark_ticker.iloc[0]
+                    df_plot_tmp = df_plot_tmp.drop(columns = ["ticker", "benchmark_ticker"])
+                    
+                    df_value_plot = (df_plot_tmp.query(
+                        "variable == 'value'").
+                        drop(columns = ["variable"]).
+                        pivot(index = "Date", columns = "parameter", values = "value"))
+                    
+                    df_value_plot.plot(
+                        ax = axes[counter,i],
+                        color = "black",
+                        title = "{} {} {} ({}, Benchmark: {})".format(
+                            sample_dict[sample], position, parameter,
+                            ticker, benchmark_ticker))
+                    
+                    df_upper_lower = (df_plot_tmp.query(
+                        "variable != 'value'").
+                        assign(new_col = lambda x: x.variable.str.split("_").str[0]).
+                        drop(columns = ["variable", "parameter"]).
+                        pivot(index = "Date", columns = "new_col", values = "value"))
+                    
+                    axes[counter,i].fill_between(
+                        x = df_upper_lower.index,
+                        y1 = df_upper_lower.upper,
+                        y2 = df_upper_lower.lower,
+                        alpha = 0.5,
+                        label = "CI: {}%".format(conf_out))
+                    
+                    axes[counter,i].legend()
+
+                counter += 1
+
+        fig.suptitle("{}-Period Regression".format(window))
+        plt.tight_layout()
+        
+        return df_tmp
+
+
+    def plot_single_rolling_ols_comparison(self, window: float, conf_int = None):
+
+        if conf_int == None: 
+            conf_int = 0.05
+            conf_passed = False
+
+        else: conf_passed = True
+
+        df_tmp = (self.rolling_ols(
+            lookback_windows = [window],
+            conf_int = conf_int,
+            verbose = False).
+            drop(columns = ["lookback_window"]))
+        
+        sample_dict = {
+            "in_sample": "In-Sample",
+            "out_sample": "Out-of-Sample",
+            "full_sample": "Full Sample"}
+
+        if conf_passed == False:
+
+            df_tmp_long = (df_tmp.query(
+                "position == 'long' & variable == 'value'").
+                drop(columns = ["position", "ticker", "benchmark_ticker"]).
+                rename(columns = {"value": "long_value"}))
+            
+            df_tmp_short = (df_tmp.query(
+                "position == 'short' & variable == 'value'").
+                drop(columns = ["position", "ticker", "benchmark_ticker"]).
+                rename(columns = {"value": "short_value"}))
+
+            df_merge = (df_tmp_long.merge(
+                df_tmp_short,
+                how = "inner",
+                on = ["Date", "parameter", "variable", "sample_group"]).
+                drop(columns = ["variable"]).
+                melt(id_vars = ["Date", "parameter", "sample_group"]).
+                assign(new_col = lambda x: x.variable.str.split("_").str[0] + " " + x.parameter))
+            
+            fig, axes = plt.subplots(nrows = 3, ncols = 2, figsize = (12, 8))
+
+            for j, parameter in enumerate(df_merge.parameter.drop_duplicates().sort_values().to_list()):
+                for i, sample in enumerate(["in_sample", "out_sample", "full_sample"]):
+            
+                    df_plot_tmp = (df_merge.query(
+                        "sample_group == @sample & parameter == @parameter")
+                        [["Date", "new_col", "value"]].
+                        rename(columns = {"new_col": "parameters"}).
+                        pivot(index = "Date", columns = "parameters", values = "value"))
+                    
+                    df_plot_tmp.plot(
+                        ax = axes[i,j],
+                        title = sample_dict[sample],
+                        color = ["black", "blue"])
+                    
+                    df_fill = (df_plot_tmp.reset_index().melt(
+                        id_vars = "Date").
+                        assign(new_col = lambda x: x.parameters.str.split(" ").str[0])
+                        [["Date", "new_col", "value"]].
+                        pivot(index = "Date", columns = "new_col", values = "value"))
+                    
+                      
+            fig.suptitle("Long: {} Short: {} Benchmark: {} Periods: {}".format(
+                self.long_name, self.short_name, self.benchmark_name, window))
+            plt.tight_layout()
+
+        if conf_passed == True:
+
+            df_tmp_long = (df_tmp.query(
+                "position == 'long'").
+                drop(columns = ["position", "ticker", "benchmark_ticker"]).
+                rename(columns = {"value": "long_position"}))
+            
+            df_tmp_short = (df_tmp.query(
+                "position == 'short'").
+                drop(columns = ["position", "ticker", "benchmark_ticker"]).
+                rename(columns = {"value": "short_position"}))
+            
+            df_merge = (df_tmp_long.merge(
+                df_tmp_short,
+                how = "inner",
+                on = ["Date", "parameter", "variable", "sample_group"]))
+            
+            df_value = (df_merge.query(
+                "variable == 'value'").
+                drop(columns = ["variable"]))
+            
+            fig, axes = plt.subplots(nrows = 3, ncols = 2, figsize = (16,10))
+
+            for i, parameter in enumerate(df_merge.parameter.drop_duplicates().sort_values().to_list()):
+                for j, sample in enumerate(["in_sample", "out_sample", "full_sample"]):
+
+                    df_plot_tmp = (df_value.query(
+                        "parameter == @parameter & sample_group == @sample")
+                        [["Date", "long_position", "short_position"]].
+                        set_index("Date"))
+                    
+                    df_plot_tmp.plot(
+                        ax = axes[j, i],
+                        title = sample_dict[sample] + " " + parameter)
+                    
+                    df_upper_lower = (df_tmp.query(
+                        "variable != 'value'").
+                        query("parameter == @parameter & sample_group == @sample").
+                        drop(columns = ["parameter", "sample_group", "ticker", "benchmark_ticker"]).
+                        assign(new_col = lambda x: x.variable.str.split("_").str[0]).
+                        drop(columns = ["variable"]))
+                    
+                    df_upper_lower_long = (df_upper_lower.query(
+                        "position == 'long'").
+                        drop(columns = ["position"]).
+                        pivot(index = "Date", columns = "new_col", values = "value"))
+                    
+                    df_upper_lower_short = (df_upper_lower.query(
+                        "position == 'short'").
+                        drop(columns = ["position"]).
+                        pivot(index = "Date", columns = "new_col", values = "value"))
+                    
+                    axes[j,i].fill_between(
+                        x = df_upper_lower_long.index, 
+                        y1 = df_upper_lower_long.upper,
+                        y2 = df_upper_lower_long.lower,
+                        alpha = 0.3,
+                        label = "Long Position CI: {}%".format((1-conf_int) * 100))
+                    
+                    
+                    axes[j,i].fill_between(
+                        x = df_upper_lower_short.index, 
+                        y1 = df_upper_lower_short.upper,
+                        y2 = df_upper_lower_short.lower,
+                        alpha = 0.3,
+                        label = "Short Position CI: {}%".format((1 - conf_int) * 100))
+                    
+                    axes[j,i].legend()
+                    
+        plt.tight_layout()
+
+
+    def plot_single_rolling_ols_paramter_comparison(self, ols_window: float, corr_window: float):
+
+        fig, axes = plt.subplots(nrows = 3, ncols = 2, figsize = (16,10))
+
+        df_tmp = (self.rolling_ols(
+            lookback_windows = [ols_window],
+            conf_int = 0.05,
+            verbose = False).
+            drop(columns = ["lookback_window"]).
+            query("variable == 'value'"))
+        
+        sample_dict = {
+            "in_sample": "In-Sample",
+            "out_sample": "Out-of-Sample",
+            "full_sample": "Full Sample"}
+
+        for i, sample in enumerate(["in_sample", "out_sample", "full_sample"]):
+            for j, parameter in enumerate(["alpha", "beta"]):
+
+                (df_tmp.query(
+                    "sample_group == @sample & parameter == @parameter")
+                    [["Date", "position", "value"]].
+                    pivot(index = "Date", columns = "position", values = "value").
+                    assign(corr = lambda x: x.long.rolling(window = corr_window).corr(x.short)).
+                    dropna()
+                    [["corr"]].
+                    plot(
+                        ax = axes[i,j], legend = False,
+                        title = sample_dict[sample] + " " + parameter,
+                        ylabel = "Correlation"))
+
+        plt.tight_layout()
+
+    def plot_single_rolling_ols_hist(self, ols_window: float):
+
+        df_tmp = (self.rolling_ols(
+            lookback_windows = [ols_window],
+            conf_int = 0.05,
+            verbose = False).
+            drop(columns = ["lookback_window"]).
+            query("variable == 'value'"))
+        
+        sample_dict = {
+            "in_sample": "In-Sample",
+            "out_sample": "Out-of-Sample",
+            "full_sample": "Full Sample"}
+        
+        fig, axes = plt.subplots(nrows = 4, ncols = 3, figsize = (24,16))
+        counter = 0
+
+        for k, position in enumerate(df_tmp.position.drop_duplicates().sort_values().to_list()):
+            for j, parameter in enumerate(df_tmp.parameter.drop_duplicates().sort_values().to_list()):
+                for i, sample in enumerate(["in_sample", "out_sample", "full_sample"]):
+
+                    df_tmp_plot = (df_tmp.query(
+                        "position == @position & parameter == @parameter & sample_group == @sample")
+                        [["value"]])
+                    
+                    sns.histplot(
+                        data = df_tmp_plot.values,
+                        ax = axes[counter,i], 
+                        bins = int(len(df_tmp_plot) / 10),
+                        kde = True,
+                        legend = False)
+                    
+                    axes[counter,i].set_title(sample_dict[sample] + " " + position + " " + parameter)
+                    
+                counter += 1
+        
+        fig.suptitle("Long: {}, Short: {}, Benchmark: {}".format(
+            self.long_name, self.short_name, self.benchmark_name))
+        plt.tight_layout()
+        
+    def plot_single_rolling_ols_contour(self, ols_window: float):
+        
+        df_tmp = (self.rolling_ols(
+            lookback_windows = [ols_window],
+            conf_int = 0.05,
+            verbose = False).
+            drop(columns = ["lookback_window"]).
+            query("variable == 'value'"))
+        
+        sample_dict = {
+            "in_sample": "In-Sample",
+            "out_sample": "Out-of-Sample",
+            "full_sample": "Full Sample"}
+        
+        df_tmp_long = (df_tmp.query(
+                "position == 'long'").
+                drop(columns = ["position", "ticker", "benchmark_ticker"]).
+                rename(columns = {"value": "long_position"}))
+            
+        df_tmp_short = (df_tmp.query(
+            "position == 'short'").
+            drop(columns = ["position", "ticker", "benchmark_ticker"]).
+            rename(columns = {"value": "short_position"}))
+
+        df_merge = (df_tmp_long.merge(
+            df_tmp_short,
+            how = "inner",
+            on = ["Date", "parameter", "variable", "sample_group"]))
+        
+        fig, axes = plt.subplots(nrows = 3, ncols = 2, figsize = (20,15))
+        
+        for i, sample in enumerate(["in_sample", "out_sample", "full_sample"]):
+                
+            sns.kdeplot(
+                data = (df_merge.query(
+                    "parameter == 'alpha' & sample_group == @sample").
+                    rename(columns = {
+                        "long_position": "Long Position",
+                        "short_position": "Short Position"})),
+                ax = axes[i,0],
+                x = "Long Position",
+                y = "Short Position",
+                fill = True,
+                cmap = "winter")
+            
+            axes[i,0].set_title(sample_dict[sample] + " Alpha Contour Map")
+            
+            sns.kdeplot(
+                data = (df_merge.query(
+                    "parameter == 'beta' & sample_group == @sample").
+                    rename(columns = {
+                        "long_position": "Long Position",
+                        "short_position": "Short Position"})),
+                ax = axes[i,1],
+                x = "Long Position",
+                y = "Short Position",
+                fill = True,
+                cmap = "autumn")
+            
+            axes[i,1].set_title(sample_dict[sample] + " Beta Contour Map")
+
+        fig.suptitle("Long: {}, Short: {}, Benchmark: {}".format(
+            self.long_name, self.short_name, self.benchmark_name))    
+        plt.tight_layout()
