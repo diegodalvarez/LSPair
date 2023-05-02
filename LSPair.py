@@ -393,7 +393,7 @@ class LSPair:
 
     def plot_cum(self, fill = True, figsize = (20,6)):
 
-        fig = self._plot_cum(self.in_sample_df, fill = True, figsize = (20,6))
+        fig = self._plot_cum(self.in_sample_df, fill = fill, figsize = (20,6))
         plt.suptitle("Long Short Comparison (In-Sample {}%) from {} to {}".format(
             (self.in_sample_ratio * 100),
             self.in_sample_df.index.min().date(), 
@@ -402,7 +402,7 @@ class LSPair:
 
     def plot_out_sample_cum(self, fill = True, figsize = (20,6)):
 
-        fig = self._plot_cum(self.out_sample_df, fill = True, figsize = (20,6))
+        fig = self._plot_cum(self.out_sample_df, fill = fill, figsize = (20,6))
         plt.suptitle("Long Short Comparison (Out-Sample {}%) from {} to {}".format(
             (round(1 - self.in_sample_ratio, 2)) * 100,
             self.out_sample_df.index.min().date(),
@@ -411,7 +411,7 @@ class LSPair:
 
     def plot_full_sample_cum(self, fill = True, figsize = (20,6)):
 
-        fig = self._plot_cum(self.full_sample_df, fill = True, figsize = (20,6))
+        fig = self._plot_cum(self.full_sample_df, fill = fill, figsize = (20,6))
         plt.suptitle("Long Short Comparison (Full Dataset) from {} to {}".format(
             self.full_sample_df.index.min().date(),
             self.full_sample_df.index.max().date()))
@@ -551,6 +551,7 @@ class LSPair:
                     self._get_fill(axes[2,i], j[1])
                     self._get_fill(axes[0,i], j[2])
 
+            
             plt.tight_layout()
 
         df_out = pd.DataFrame()
@@ -749,7 +750,7 @@ class LSPair:
       
         return df_out
 
-    def plot_single_rolling_ols(self, window: float, conf_int = 0.05):
+    def plot_single_rolling_ols(self, window: float, fill = True, conf_int = 0.05):
 
         df_tmp = (self.rolling_ols(
             lookback_windows = [30],
@@ -791,20 +792,22 @@ class LSPair:
                             sample_dict[sample], position, parameter,
                             ticker, benchmark_ticker))
                     
-                    df_upper_lower = (df_plot_tmp.query(
-                        "variable != 'value'").
-                        assign(new_col = lambda x: x.variable.str.split("_").str[0]).
-                        drop(columns = ["variable", "parameter"]).
-                        pivot(index = "Date", columns = "new_col", values = "value"))
-                    
-                    axes[counter,i].fill_between(
-                        x = df_upper_lower.index,
-                        y1 = df_upper_lower.upper,
-                        y2 = df_upper_lower.lower,
-                        alpha = 0.5,
-                        label = "CI: {}%".format(conf_out))
-                    
-                    axes[counter,i].legend()
+                    if fill == True:
+
+                        df_upper_lower = (df_plot_tmp.query(
+                            "variable != 'value'").
+                            assign(new_col = lambda x: x.variable.str.split("_").str[0]).
+                            drop(columns = ["variable", "parameter"]).
+                            pivot(index = "Date", columns = "new_col", values = "value"))
+                        
+                        axes[counter,i].fill_between(
+                            x = df_upper_lower.index,
+                            y1 = df_upper_lower.upper,
+                            y2 = df_upper_lower.lower,
+                            alpha = 0.5,
+                            label = "CI: {}%".format(conf_out))
+                        
+                        axes[counter,i].legend()
 
                 counter += 1
 
@@ -813,8 +816,7 @@ class LSPair:
         
         return df_tmp
 
-
-    def plot_single_rolling_ols_comparison(self, window: float, conf_int = None):
+    def plot_single_rolling_ols_comparison(self, window: float, conf_int = None, figsize = (16,10)):
 
         if conf_int == None: 
             conf_int = 0.05
@@ -853,7 +855,7 @@ class LSPair:
                 melt(id_vars = ["Date", "parameter", "sample_group"]).
                 assign(new_col = lambda x: x.variable.str.split("_").str[0] + " " + x.parameter))
             
-            fig, axes = plt.subplots(nrows = 3, ncols = 2, figsize = (12, 8))
+            fig, axes = plt.subplots(nrows = 3, ncols = 2, figsize = figsize)
 
             for j, parameter in enumerate(df_merge.parameter.drop_duplicates().sort_values().to_list()):
                 for i, sample in enumerate(["in_sample", "out_sample", "full_sample"]):
@@ -901,7 +903,7 @@ class LSPair:
                 "variable == 'value'").
                 drop(columns = ["variable"]))
             
-            fig, axes = plt.subplots(nrows = 3, ncols = 2, figsize = (16,10))
+            fig, axes = plt.subplots(nrows = 3, ncols = 2, figsize = figsize)
 
             for i, parameter in enumerate(df_merge.parameter.drop_duplicates().sort_values().to_list()):
                 for j, sample in enumerate(["in_sample", "out_sample", "full_sample"]):
@@ -951,10 +953,9 @@ class LSPair:
                     
         plt.tight_layout()
 
+    def plot_single_rolling_ols_parameter_comparison(self, ols_window: float, corr_window: float, figsize = (16,10)):
 
-    def plot_single_rolling_ols_paramter_comparison(self, ols_window: float, corr_window: float):
-
-        fig, axes = plt.subplots(nrows = 3, ncols = 2, figsize = (16,10))
+        fig, axes = plt.subplots(nrows = 3, ncols = 2, figsize = figsize)
 
         df_tmp = (self.rolling_ols(
             lookback_windows = [ols_window],
@@ -985,7 +986,7 @@ class LSPair:
 
         plt.tight_layout()
 
-    def plot_single_rolling_ols_hist(self, ols_window: float):
+    def plot_single_rolling_ols_hist(self, ols_window: float, figsize = (24,16)):
 
         df_tmp = (self.rolling_ols(
             lookback_windows = [ols_window],
@@ -999,7 +1000,7 @@ class LSPair:
             "out_sample": "Out-of-Sample",
             "full_sample": "Full Sample"}
         
-        fig, axes = plt.subplots(nrows = 4, ncols = 3, figsize = (24,16))
+        fig, axes = plt.subplots(nrows = 4, ncols = 3, figsize = figsize)
         counter = 0
 
         for k, position in enumerate(df_tmp.position.drop_duplicates().sort_values().to_list()):
@@ -1025,7 +1026,7 @@ class LSPair:
             self.long_name, self.short_name, self.benchmark_name))
         plt.tight_layout()
         
-    def plot_single_rolling_ols_contour(self, ols_window: float):
+    def plot_single_rolling_ols_contour(self, ols_window: float, figsize = (20,15)):
         
         df_tmp = (self.rolling_ols(
             lookback_windows = [ols_window],
@@ -1054,7 +1055,7 @@ class LSPair:
             how = "inner",
             on = ["Date", "parameter", "variable", "sample_group"]))
         
-        fig, axes = plt.subplots(nrows = 3, ncols = 2, figsize = (20,15))
+        fig, axes = plt.subplots(nrows = 3, ncols = 2, figsize = figsize)
         
         for i, sample in enumerate(["in_sample", "out_sample", "full_sample"]):
                 
