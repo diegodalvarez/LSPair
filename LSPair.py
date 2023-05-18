@@ -606,8 +606,8 @@ class LSPair:
             try:
 
                 rolling_ols = (RollingOLS(
-                    endog = df_exog,
-                    exog = sm.add_constant(df_endog),
+                    endog = df_endog,
+                    exog = sm.add_constant(df_exog),
                     window = lookback_window).
                     fit())
                 
@@ -962,7 +962,8 @@ class LSPair:
             conf_int = 0.05,
             verbose = False).
             drop(columns = ["lookback_window"]).
-            query("variable == 'value'"))
+            query("variable == 'value'").
+            replace({"benchmark": "beta"}))
         
         sample_dict = {
             "in_sample": "In-Sample",
@@ -1033,7 +1034,8 @@ class LSPair:
             conf_int = 0.05,
             verbose = False).
             drop(columns = ["lookback_window"]).
-            query("variable == 'value'"))
+            query("variable == 'value'").
+            replace({"benchmark": "beta"}))
         
         sample_dict = {
             "in_sample": "In-Sample",
